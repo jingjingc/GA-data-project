@@ -272,14 +272,16 @@ tags = ['acoustic', 'ambient', 'blues', 'classical', 'country', 'electronic',
        'pop', 'pop punk', 'punk', 'reggae', 'rnb', 'rock', 'soul', 'world', 
        '60s', '70s', '80s', '90s']
 
-# Count tweets by genre for top 25 countries
+# Tweet count by genre
+
+# Tweets by genre in each country for top 25 countries
 country_genre_grouped = mmtd_tags[mmtd_tags.countryName.isin(top_countries_by_tweet)].groupby(['countryName','tag'])
 country_genre_count = country_genre_grouped['tweet_id'].count().reset_index()
 
 
-####################
-# DBSCAN PLOT ON MAP
-####################
+#############3#####
+# CLUSTERING ON MAP
+###################
 from mpl_toolkits.basemap import Basemap
 
 # redefine dbscan function to plot on top of world map
@@ -341,3 +343,6 @@ for tag in tags:
         print 'working on ' + tag
         dbscan_world_map_plot(data, 2, 1000, 'dbscan_'+tag+'_ww.pdf')
 
+
+# Focus on a smaller geographical area to get more specificity
+# Let's look
