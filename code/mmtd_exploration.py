@@ -397,7 +397,6 @@ for tag in tags:
 
 # Plot tweets by genre over time
 
-mmtd_tags.tweet_datetime = pd.to_datetime(mmtd.tweet_datetime)
 mmtd_tags['tweet_date'] = mmtd["tweet_datetime"].map(lambda t: t.date())
 
 tweets_by_day_genre = mmtd_tags.groupby('tag', 'tweet_date')["tweet_id"].count()
