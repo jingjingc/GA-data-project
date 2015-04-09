@@ -15,7 +15,7 @@ pd.set_option('display.max_columns', None)
 # connection to database
 conn = pg.connect("dbname=jchen user=postgres")
 
-# First, we'll pull in only the tweets (geo-spatial data included)
+# First, we'll pull in only the tweets (geo data included)
 mmtd_query='''select * from mmtd'''
 
 mmtd = pd.read_sql(mmtd_query, conn)
@@ -32,42 +32,64 @@ print mmtd.tweet_datetime.describe()
 # just over a million tweets
 # from 11/09/2011 to 4/30/2013
 # most columns non-null except geo-location info
+# 130k track ids
+# 24.5k artist ids
 
 print mmtd.track_title.describe()
 print mmtd.artist_name.describe()
-# 89k unique tracks by 24k unique artists
+# 89k unique track titles by 24k unique artists
 # Song with most tweets: Someone Like You (Adele)
 # Artist with most tweets: Rihanna
 
-print mmtd.country.describe()
-# 202 countries represented, the most frequent being US
+mmtd.tweetId.nunique()
+# 208k unique twitter user ids
 
-# Tweets by continent
-print mmtd.groupby('continentName').tweet_id.count()
+# A function that plots top grouped counts and returns a numpy array of results
+def grouped_count(df, group_col, count_col, top=10):
+    grouped = df.groupby(group_col)[count_col].count()
+    grouped.sort(ascending=False)
+    grouped[0:top].plot(kind='bar')
+    plt.title(count_col+' count by ' +group_col)
+    plt.xlabel(group_col)
+    plt.ylabel(count_col+' count')
+    grouped_df = pd.DataFrame(grouped).reset_index(level=0)
+    grouped_df.columns=[group_col, count_col+'_count']
+    return grouped_df
 
-# Check out the top 20 countries by tweets
-tweets_by_country = mmtd.groupby('countryName').tweet_id.count()
-tweets_by_country.sort(ascending=False)
-print tweets_by_country[0:20]
-# store the top countries by tweet volume
-top_countries_by_tweet=tweets_by_country.index[0:20].values
+# Plot and get top tweets by: 
+# continent, country, city, track, artist
+tweets_by_continent=grouped_count(mmtd, 'continentName', 'tweet_id')
+tweets_by_country=grouped_count(mmtd, 'countryName', 'tweet_id', 20)
+tweets_by_city=grouped_count(mmtd, 'city', 'tweet_id', 20)
+# Interesting - lots of tweets from Potsdam
+tweets_by_track=grouped_count(mmtd, 'track_title', 'tweet_id', 10)
+tweets_by_artist=grouped_count(mmtd, 'artist_name', 'tweet_id', 10)
 
-# Top cities by tweets
-tweets_by_city = mmtd.groupby(['countryName','city']).tweet_id.count()
-tweets_by_city.sort(ascending=False)
-print tweets_by_city[0:25]
-# Interesting, most of these cities are not in the US
 
-# Get count of unique tweets, twitter users, artists, songs by country
-grouped = mmtd[mmtd.countryName.isin(top_countries_by_tweet)].groupby('countryName')
-count_df = pd.DataFrame(index=top_countries_by_tweet)
-cols = ['tweet_id','tweet_userId', 'artist_name', 'track_title']
-for i in cols:
-    counts = grouped[i].nunique()
-    count_df[i]=counts
+# A similar function that gets unique count grouped by
+def grouped_uniques(df, group_col, count_col, top=10):
+    grouped = df.groupby(group_col)[count_col].nunique()
+    grouped.sort(ascending=False)
+    grouped[0:top].plot(kind='bar')
+    plt.title(count_col+' unique count by ' +group_col)
+    plt.xlabel(group_col)
+    plt.ylabel(count_col+' uniques')
+    grouped_df = pd.DataFrame(grouped).reset_index(level=0)
+    grouped_df.columns=[group_col, count_col+'_uniques']
+    return grouped_df
+    
+# unique twitter users by city
+twitter_users_by_city=grouped_uniques(mmtd, 'city', 'tweet_userId', 20)
+# RW 02 == Jakarta Special Capital Region?
 
-# Most popular song, artist in each country (top 25 countries)
+# most prolific artists
+tracks_by_artist=grouped_uniques(mmtd, 'artist_name', 'track_title', 10)
 
+# Most popular artist in each country (top 25 countries)
+artist_by_country = mmtd[mmtd.countryName.isin(tweets_by_country.countryName[0:25])].groupby('countryName')['artist_name'].agg(lambda x: x.value_counts().index[0])
+artist_by_country = pd.DataFrame(artist_by_country).reset_index(level=0)
+# interestingly, these are all American/English except for Germany 
+# and Portugal (value appears to be song and not an artist)
 
 ########################
 # GEO-SPATIAL CLUSTERING 
@@ -102,7 +124,7 @@ all_scatter = plt.scatter(all_lat_long_scaled.tweet_longitude, all_lat_long_scal
 from time import time
 
 # Bundle up DBSCAN and plot into function that takes df, epsilon, min_samples, filename for plot
-def dbscan_plot(df, e=0.5, n=5, filename='dbscan_plot_default.pdf'): 
+def dbscan_plot(df, e=0.5, n=5, filename='dbscan_plot_default.png'): 
     start_time = time()
     
     db = DBSCAN(eps=e, min_samples=n).fit(np.array(df))
@@ -127,7 +149,7 @@ def dbscan_plot(df, e=0.5, n=5, filename='dbscan_plot_default.pdf'):
         if k == -1: # plot noise smaller and lighter
             xy = np.array(df)[class_member_mask & ~core_samples_mask]
             plt.plot(xy[:,0], xy[:,1], 'o', markerfacecolor='1',
-                   alpha = .2, markersize=1) 
+                   markeredgecolor='k', markersize=1) 
                    
         if k<> -1:
             # in-cluster members but not core
@@ -142,6 +164,8 @@ def dbscan_plot(df, e=0.5, n=5, filename='dbscan_plot_default.pdf'):
     plt.title('Estimated number of clusters: %d' % num_clusters + ' (eps: %d' % e + ', min. pts: %d' % n +')')
     plt.savefig(filename)
     plt.show()
+    
+    
 # Run DBSCAN on all tweet lat long data
 dbscan_plot(all_lat_long, 1, 50, 'dbscan_cluster_all.pdf')
 
@@ -151,7 +175,7 @@ dbscan_plot(all_lat_long, 1, 50, 'dbscan_cluster_all.pdf')
 # Not a terrible job, but highly imbalanced clusters
 # e.g. multiple clusters for islands of Hawaii, yet one large cluster for mainland US
 
-##################
+#################
 
 # Let's look at US only tweets
 mmtd_us=mmtd[mmtd.country=='US']
@@ -162,11 +186,10 @@ all_scatter = plt.scatter(us_lat_long.tweet_longitude, us_lat_long.tweet_latitud
 # pretty heavily concentrated on eastern half 
 
 # Run DBSCAN on US tweets
-dbscan_plot(us_lat_long, 'dbscan_cluster_us.pdf')
+dbscan_plot(us_lat_long, 1, 50, 'dbscan_cluster_us.png')
 # Estimated number of clusters: 18
 # process took 235.78 seconds
 # Not terribly successful for the US - entire eastern half in one cluster
-
 
 # Let's try on Europe
 mmtd_eu=mmtd[mmtd.continent=='EU']
@@ -176,7 +199,7 @@ all_scatter = plt.scatter(eu_lat_long.tweet_longitude, eu_lat_long.tweet_latitud
 # no discernable figures when plotted
 
 # Run DBSCAN on EU tweets
-dbscan_plot(eu_lat_long, 'dbscan_cluster_eu.pdf')
+dbscan_plot(eu_lat_long, 1, 50,'dbscan_cluster_eu.png')
 # Estimated number of clusters: 52
 # process took 1572.52 seconds
 # Not terribly successful for Europe either
@@ -272,20 +295,24 @@ tags = ['acoustic', 'ambient', 'blues', 'classical', 'country', 'electronic',
        'pop', 'pop punk', 'punk', 'reggae', 'rnb', 'rock', 'soul', 'world', 
        '60s', '70s', '80s', '90s']
 
-# Tweet count by genre
+# Tweets by genre
+tweets_by_genre = grouped_count(mmtd_tags, 'tag', 'tweet_id', 10)
 
-# Tweets by genre in each country for top 25 countries
-country_genre_grouped = mmtd_tags[mmtd_tags.countryName.isin(top_countries_by_tweet)].groupby(['countryName','tag'])
-country_genre_count = country_genre_grouped['tweet_id'].count().reset_index()
+# Top genre by country
+genre_by_country = mmtd_tags[mmtd_tags.countryName.isin(tweets_by_country.countryName[0:25])].groupby('countryName')['tag'].agg(lambda x: x.value_counts().index[0])
+genre_by_country = pd.DataFrame(genre_by_country).reset_index(level=0)
+# all rock or pop, no surprise there
 
-
-#############3#####
+###################
 # CLUSTERING ON MAP
 ###################
 from mpl_toolkits.basemap import Basemap
 
-# redefine dbscan function to plot on top of world map
-def dbscan_world_map_plot(df, e=0.5, n=5, filename='dbscan_map_plot_default.pdf'): 
+# redefine dbscan function to plot on top of map
+# takes parameters dataframe, eps, min_samples, 
+# coordinate array of map corners: lower left lat, upper right lat, lower left long, upper right long (defaults to global)
+# save filename
+def dbscan_cyl_plot(df, e=0.5, n=5, c_array=[-65,90,-180,180], filename='dbscan_map_plot_default.pdf'): 
     start_time = time()
     
     db = DBSCAN(eps=e, min_samples=n).fit(np.array(df))
@@ -304,10 +331,11 @@ def dbscan_world_map_plot(df, e=0.5, n=5, filename='dbscan_map_plot_default.pdf'
     colors = plt.cm.Spectral(np.linspace(0, 1, len(unique_labels)))
     
     # Equidistant Cylindrical Projection
-    m = Basemap(projection='cyl',llcrnrlat=-65,urcrnrlat=90,\
-                llcrnrlon=-180,urcrnrlon=180,resolution='c')
+    m = Basemap(projection='cyl',llcrnrlat=c_array[0],urcrnrlat=c_array[1],\
+                llcrnrlon=c_array[2],urcrnrlon=c_array[3],resolution='c')
     m.drawcoastlines()
     m.drawcountries()
+    m.drawstates()
             
     for k, color in zip(unique_labels, colors):
         
@@ -335,14 +363,48 @@ def dbscan_world_map_plot(df, e=0.5, n=5, filename='dbscan_map_plot_default.pdf'
     plt.savefig(filename)
     plt.show()
 
+# run and plot for all tweets
+dbscan_cyl_plot(all_lat_long, 1, 500, 'dbscan_all_ww.pdf')
 
 # Run and plot DBSCAN for each genre in our top 25 to find global clusters
 for tag in tags:
     data=mmtd_tags[mmtd_tags.tag==tag][['tweet_longitude', 'tweet_latitude']]
     if len(data)>0:
         print 'working on ' + tag
-        dbscan_world_map_plot(data, 2, 1000, 'dbscan_'+tag+'_ww.pdf')
+        dbscan_cyl_plot(data, 1, 500, 'dbscan_'+tag+'_ww.png')
 
 
 # Focus on a smaller geographical area to get more specificity
-# Let's look
+# Look at US only
+us_coord = [15,55,-130,-60]
+us_tags = mmtd_tags[mmtd_tags.countryName=='United States']
+
+
+dbscan_cyl_plot(us_lat_long, 1, 1000, [15,55,-130,-60], 'dbscan_all_us.png')
+
+ # Cluster by genre for US only 
+for tag in tags:
+    data=us_tags[us_tags.tag==tag][['tweet_longitude', 'tweet_latitude']]
+    if len(data)>0:
+        print 'working on ' + tag
+        dbscan_cyl_plot(data, 1, 100, us_coord, 'dbscan_'+tag+'_us.png')
+          
+
+######################
+# TIME SERIES ANALYSIS
+######################
+
+
+# Plot tweets by genre over time
+
+mmtd_tags.tweet_datetime = pd.to_datetime(mmtd.tweet_datetime)
+mmtd_tags['tweet_date'] = mmtd["tweet_datetime"].map(lambda t: t.date())
+
+tweets_by_day_genre = mmtd_tags.groupby('tag', 'tweet_date')["tweet_id"].count()
+
+for i, group in df.groupby('ModelID'):
+    plt.figure()
+    group.plot(x='saleDate', y='MeanToDate', title=str(i))
+
+
+
